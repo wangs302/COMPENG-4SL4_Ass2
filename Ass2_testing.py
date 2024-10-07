@@ -1,187 +1,162 @@
 import numpy as np
+import matplotlib.pyplot as plt
 import pandas as pd
-from matplotlib import pyplot as plt
-from scipy.special import expit
-from sklearn.datasets import load_breast_cancer
-from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import PrecisionRecallDisplay, f1_score, mean_absolute_error, precision_recall_curve, \
-    precision_score, recall_score
-from sklearn.model_selection import KFold, cross_val_score, train_test_split
-from sklearn.neighbors import KNeighborsClassifier
 from sklearn.preprocessing import StandardScaler
+from sklearn.neighbors import KNeighborsClassifier 
+from sklearn.model_selection import KFold
+
+#Data Generation
+
+def dataSetGeneration():
+    X_train = np.linspace(0.,1.,201) # training set
+    X_test = np.linspace(0.,1.,101) # training set
+
+    # Student number: 400237438
+    np.random.seed(4387)
+
+    t_train = np.sin(4*np.pi*X_train) + 0.3 * np.random.randn(201)
+    t_test = np.sin(4*np.pi*X_test) + 0.3 * np.random.randn(101)
+    
+    return X_train, t_train, X_test, t_test
 
 
-def get_dataset_splits(dataset, rnd_seed):
-    """
-    Get training and testing splits from a given dataset
+def dataReshape(X_train,t_train,X_test, t_test):
+    # Changing all the matrices to column vector
+    X_train_col = X_train.reshape(-1,1)
+    t_train_col = t_train.reshape(-1,1)
 
-    :param dataset:
-    :param rnd_seed:
-    :return:
-    """
-    X = pd.DataFrame(dataset.data, columns=dataset.feature_names)
-    y = dataset.target
+    X_test_col = X_test.reshape(-1,1)
+    t_test_col = t_test.reshape(-1,1)
+    
+    return X_train_col,t_train_col,X_test_col,t_test_col
 
-    return train_test_split(X, y, test_size=0.2, random_state=rnd_seed)
+def trueFunc(x):
+    trueFx = np.sin(4 * np.pi * x)
+    return trueFx
 
+# training error and cross-validation error for all k-NN models
 
-def calc_misclassification_rate(predictions, y_test_mat):
-    return np.mean(predictions != y_test_mat)
+def errorCalc(N,predict,target):
 
+    # training error = 1/N * SUM(w0+w1x1+w2x2+...+wNxN - t)^2 from i = 1 to N
+    error = np.sum(np.square(predict - target))/N
 
-def logistic_loss(y, pred_proba, eps=1e-15):
-    # Log loss is undefined for p=0 or p=1, so clip probabilities
-    pred_proba = np.fmax(eps, np.fmin(1.0 - eps, pred_proba))
-
-    return -np.mean(y * np.log(pred_proba) - (1.0 - y) * np.log(1.0 - pred_proba))
-
-
-def train_logistic_regression(x_train, y_train, tolerance, lr):
-    """
-    Perform batch gradient descent to train the logistic regression model
-
-    :param x_train: the training input
-    :param y_train: the true values
-    :param tolerance: the threshold at which to stop training
-    :param lr: the learning rate
-    :return: the weights and bias for the model
-    """
-    # initialize weights and bias to zero
-    weights = np.zeros(x_train.shape[1])
-
-    while True:
-        # calculate predictions
-        preds = predict_log_reg_proba(x_train, weights)
-
-        # update the params
-        grad = (lr / x_train.shape[0]) * x_train.T @ (preds - y_train)
-
-        weights -= grad
-
-        # calculate the loss
-        loss = logistic_loss(y_train, predict_log_reg_proba(x_train, weights))
-
-        if loss <= tolerance:
-            break
-
-    return weights
+    return error
 
 
-def predict_log_reg_proba(x_test, weights):
-    # calculate prediction probabilities
-    return expit(x_test @ weights)
+def kNNPrediction(k, X_train, X_test, t_train):
+    prediction=[]
+    
+    for x_test in X_test:
+        # Calculate euclidean distances between each x_test point and all data points in X_train
+        EuDistance = [np.linalg.norm(x_train - x_test) for x_train in X_train]
+
+        # Sort data points by distance (smallest to largest) and get first K numbers of nearest neighbors
+        N_distance = np.argsort(EuDistance,kind='stable')[:k]
+
+        # Get the target values of the K nearest neighbors
+        kNN = [t_train[i] for i in N_distance]
+        # kNN = list(t_train[N_distance])
+
+        # Calculate the prediction as the mean of the target values of the K neighbors
+        prediction.append(np.mean(kNN))
+            
+    return prediction
+        
+
+# Cross-validation 
+
+def crossValid_prediction(k, k_fold, x_train, t_train):
+    
+    CV_preidction_mat = []
+    
+    CV_error = 0.0
+    sc = StandardScaler()
+    # cross validation data split
+    for train, test in k_fold.split(x_train):
+        x_train_sp, x_test_sp = x_train[train], x_train[test]
+        t_train_sp, t_test_sp = t_train[train], t_train[test]   
+                
+        x_train_sp = sc.fit_transform(x_train_sp)
+        x_test_sp = sc.transform(x_test_sp)
+
+        cv_prediction = kNNPrediction(k,x_train_sp, x_test_sp, t_train_sp)
+        CV_preidction_mat.append(cv_prediction)
+        
+        CV_error += errorCalc(t_test_sp.shape[0],cv_prediction,t_test_sp)
+        
+    return CV_error/ k_fold.n_splits
 
 
-def predict_log_reg(x_test, weights, threshold=0.5):
-    preds = predict_log_reg_proba(x_test, weights)
+def plotFigure(X_train, t_train, X_test, predictor):
+    
+    fig = plt.figure()
 
-    # split classification at threshold
-    pred_class = [1 if i > threshold else 0 for i in preds]
+    # plotting true function
+    plt.plot(X_train, trueFunc(X_train), color = "black", label = "trueFunc" )
 
-    return np.array(pred_class)
+    # plotting training data
+    plt.plot(X_train, t_train, 'o', color = "blue", label = "Training Data" )
 
+    # plotting predictor function
+    plt.plot(X_test, predictor, color = "red", label = "kNN Prediction" )
 
-def calc_pr_curve(y_test, probas_pred):
-    precisions, recalls, thresholds = [], [], []
+    plt.legend(loc="best")
+    plt.show()
 
-    sorted_probs = sorted(probas_pred)
+   
+def plotRMSE(K, name, train_error):
+    fig = plt.figure()
+    fig.suptitle(f'Error vs K: {name}') 
 
-    # calculate the precision and recall score for each threshold
-    for thresh in sorted_probs:
-        precisions.append(precision_score(y_test, probas_pred > thresh, zero_division=1))
-        recalls.append(recall_score(y_test, probas_pred > thresh))
-
-    return np.array(precisions), np.array(recalls), np.array(probas_pred)
-
-
-def plot_pr_curve(precision, recall, title, filename):
-    disp = PrecisionRecallDisplay(precision, recall)
-    disp.plot()
-    disp.ax_.set_title(title)
-    disp.figure_.savefig(filename)
-
-
-def predict_knn(k, x_train_mat, x_test_mat, y_train_mat):
-    predictions = []
-
-    # For each row in the test set, calculate the distance between it and each row in the training set,
-    # and pick the K rows with the smallest distances between them and the test row
-    for x in x_test_mat:
-        distances = np.linalg.norm(x_train_mat - x, axis=1)
-        neighbours = np.argsort(distances, kind='stable')[0:k]
-        classes = list(y_train_mat[neighbours])
-        predictions.append(max(set(classes), key=classes.count))
-
-    return predictions
-
-
-def perform_cross_validation(k, kf, x_train, y_train):
-    cross_valid_score = 0.0
-
-    # Run through all num K_FOLDS cross-validation
-    for train, test in kf.split(x_train):
-        x_train_mat, x_test_mat = x_train[train], x_train[test]
-        y_train_mat, y_test_mat = y_train[train], y_train[test]
-
-        predictions = predict_knn(k, x_train_mat, x_test_mat, y_train_mat)
-
-        cross_valid_score += calc_misclassification_rate(predictions, y_test_mat)
-
-    # Average final cross-validation error
-    return cross_valid_score / kf.n_splits
+    # plotting error vs k
+    plt.plot(K, train_error, 'o', color = "blue", label = name)
+      
+    plt.legend(loc="best")
+    plt.show()
 
 
 def main():
-    K_FOLDS = 5  # use 5 folds
-    RANDOM_SEED = 637
-    np.random.seed(RANDOM_SEED)  # student number is 400190637
-    np.set_printoptions(linewidth=10000)
-    dataset = load_breast_cancer()
-
-    x_train, x_test, y_train, y_test = get_dataset_splits(dataset, RANDOM_SEED)
-
+    X_train, t_train, X_test, t_test = dataSetGeneration()
+    
+    X_train_rs,t_train_rs,X_test_rs,t_test_rs = dataReshape(X_train, t_train, X_test, t_test)
+    
+    # Scale both data set
     sc = StandardScaler()
-    x_train = sc.fit_transform(x_train)
-    x_test = sc.transform(x_test)
+    x_train = sc.fit_transform(X_train_rs)
+    x_test = sc.transform(X_test_rs)
 
-    # Initialize K-Fold splitter
-    kf = KFold(n_splits=K_FOLDS)
+    # 1<= k <= 60
+    kVal = np.arange(1,61,1)
 
-
-
-    """k-nearest neighbour classifier"""
-    cv_scores = []
-    for k in range(1, 6):  # number of neighbours
-        # My implementation
-        cv_score = perform_cross_validation(k, kf, x_train, y_train)
-        cv_scores.append(cv_score)
-        print(f"For k={k}, the cross-validation error was: {cv_score}")
-
-        # Scikit learn implementation
-        knn_clf = KNeighborsClassifier(n_neighbors=k)
-        skl_cv_score = -cross_val_score(knn_clf, x_train, y_train, cv=kf, scoring="neg_mean_absolute_error").mean()
-        print(f"The sklearn cv error was: {skl_cv_score}")
-
-    print()
-    best_k = np.argmin(cv_scores) + 1
-    print(f"The best model was at k={best_k}")
-
-    # My implementation
-    predictions = predict_knn(best_k, x_train, x_test, y_train)
-
-    best_misclass_rate = calc_misclassification_rate(predictions, y_test)
-    f1_s = f1_score(y_test, predictions)
-    print(f"The test error for my implementation is: {best_misclass_rate}, the f1-score is: {f1_s}")
-
-    # Scikit learn implementation
-    knn_clf = KNeighborsClassifier(n_neighbors=best_k)
-    knn_clf.fit(x_train, y_train)
-
-    predictions = knn_clf.predict(x_test)
-
-    best_misclass_rate = mean_absolute_error(y_test, predictions)
-    f1_s = f1_score(y_test, predictions)
-    print(f"The test error for the sklearn implementation is: {best_misclass_rate}, the f1-score is: {f1_s}")
+    
+    Fold = 5
+    k_Fold = KFold(n_splits=Fold)
+    
+    training_error = []
+    CV_error = []
+    
+    print(t_train_rs.shape[0])
+    
+    for k in kVal: 
+        predict_kNN = kNNPrediction(k, x_train, x_train, t_train)
+        train_error = errorCalc(t_train_rs.shape[0],predict_kNN,t_train_rs)
+        training_error.append(train_error)
+        
+        
+        CV_error.append(crossValid_prediction(k, k_Fold, x_train,t_train))
+        print(f"k={k}, trainig error = {np.sqrt(train_error)}, cross-validation error = {CV_error[k-1]}")
+       
+    
+    plotRMSE(kVal, "Trainig Error", np.sqrt(training_error))
+    plotRMSE(kVal, "Cross-Validation Error", CV_error)
+    
+    k_best = np.argmin(CV_error)+1
+    best_kNN = kNNPrediction(k_best, x_test, x_test, t_test)
+    
+    print(f"The best k is {k_best}")
+    
+    plotFigure(X_train, t_train, X_test, best_kNN)
 
 
 if __name__ == '__main__':
