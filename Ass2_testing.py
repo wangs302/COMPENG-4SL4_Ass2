@@ -38,7 +38,7 @@ def trueFunc(x):
 
 def errorCalc(N,predict,target):
 
-    # training error = 1/N * SUM(w0+w1x1+w2x2+...+wNxN - t)^2 from i = 1 to N
+    # training error = 1/N * SUM(y-t)^2 from i = 1 to N
     error = np.sum(np.square(predict - target))/N
 
     return error
@@ -67,9 +67,7 @@ def kNNPrediction(k, X_train, X_test, t_train):
 # Cross-validation 
 
 def crossValid_prediction(k, k_fold, x_train, t_train):
-    
-    CV_preidction_mat = []
-    
+
     CV_error = 0.0
     sc = StandardScaler()
     # cross validation data split
@@ -80,8 +78,7 @@ def crossValid_prediction(k, k_fold, x_train, t_train):
         x_train_sp = sc.fit_transform(x_train_sp)
         x_test_sp = sc.transform(x_test_sp)
 
-        cv_prediction = kNNPrediction(k,x_train_sp, x_test_sp, t_train_sp)
-        CV_preidction_mat.append(cv_prediction)
+        cv_prediction = kNNPrediction(k,x_train_sp, x_test_sp, t_train_sp)       
         
         CV_error += errorCalc(t_test_sp.shape[0],cv_prediction,t_test_sp)
         
@@ -105,16 +102,26 @@ def plotFigure(X_train, t_train, X_test, predictor):
     plt.show()
 
    
-def plotRMSE(K, name, train_error):
+def plotError(K, name, error):
     fig = plt.figure()
     fig.suptitle(f'Error vs K: {name}') 
 
     # plotting error vs k
-    plt.plot(K, train_error, 'o', color = "blue", label = name)
+    plt.plot(K, error, 'o', color = "blue", label = name)
       
     plt.legend(loc="best")
     plt.show()
 
+def errorCompare(K, train_error, cv_error):
+    fig = plt.figure()
+    fig.suptitle(f'Error vs K') 
+
+    # plotting error vs k
+    plt.plot(K, train_error, 'o', color = "blue", label = "Training Error")
+    plt.plot(K, cv_error, 'o', color = "green", label = "Cross-Validation Error")
+    
+    plt.legend(loc="best")
+    plt.show()
 
 def main():
     X_train, t_train, X_test, t_test = dataSetGeneration()
@@ -136,25 +143,26 @@ def main():
     training_error = []
     CV_error = []
     
-    print(t_train_rs.shape[0])
     
     for k in kVal: 
         predict_kNN = kNNPrediction(k, x_train, x_train, t_train)
-        train_error = errorCalc(t_train_rs.shape[0],predict_kNN,t_train_rs)
+        train_error = errorCalc(t_train_rs.shape[0],predict_kNN,t_train_rs.flatten())
         training_error.append(train_error)
         
         
         CV_error.append(crossValid_prediction(k, k_Fold, x_train,t_train))
-        print(f"k={k}, trainig error = {np.sqrt(train_error)}, cross-validation error = {CV_error[k-1]}")
+        print(f"k={k}, training error = {np.sqrt(train_error)}, cross-validation error = {CV_error[k-1]}")
        
     
-    plotRMSE(kVal, "Trainig Error", np.sqrt(training_error))
-    plotRMSE(kVal, "Cross-Validation Error", CV_error)
+    plotError(kVal, "Trainig Error", np.sqrt(training_error))
+    plotError(kVal, "Cross-Validation Error", CV_error)
+    errorCompare(kVal, np.sqrt(training_error), CV_error)
     
     k_best = np.argmin(CV_error)+1
     best_kNN = kNNPrediction(k_best, x_test, x_test, t_test)
+    test_error = errorCalc(t_test_rs.shape[0],best_kNN,t_test_rs.flatten())
     
-    print(f"The best k is {k_best}")
+    print(f"The best k is {k_best}, the test error is {np.sqrt(test_error)}")
     
     plotFigure(X_train, t_train, X_test, best_kNN)
 
